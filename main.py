@@ -52,8 +52,8 @@ class BaiduImageGenerator:
             )
             await asyncio.sleep(5)
 
-            # 点击AI生图按钮 - 使用 has-text 定位器
-            ai_image_button = self.page.locator('div:has-text("AI生图")').first
+            # 点击AI生图按钮 - 使用 filter 精确匹配
+            ai_image_button = self.page.locator('div').filter(has_text='AI生图').first
             await ai_image_button.wait_for(state='visible', timeout=15000)
             await ai_image_button.click()
             await asyncio.sleep(3)

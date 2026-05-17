@@ -32,6 +32,9 @@ class BaiduAiImagingPlugin(Star):
 
     def _register_web_apis(self):
         """注册插件页面所需的 Web API"""
+        # 注册 SSE 日志流接口
+        # 前端通过 bridge.subscribeSSE("logs/stream") 访问
+        # Dashboard 会转发到 /api/plug/astrbot_plugin_BaiduAi_Imaging/logs/stream
         self.context.register_web_api(
             f"/{PLUGIN_NAME}/logs/stream",
             self.logs_stream,
@@ -98,12 +101,36 @@ class BaiduAiImagingPlugin(Star):
 
         project_path = os.path.join(os.path.dirname(__file__), "Free_BaiduAi_Imaging")
 
+        # 检查 node_modules 是否存在
+        node_modules_path = os.path.join(project_path, "node_modules")
+        if not os.path.exists(node_modules_path):
+            self._add_log("正在安装 Node.js 依赖...", "INFO")
+            self._add_log("首次启动需要安装依赖，请耐心等待...", "INFO")
+            try:
+                npm_install_process = await asyncio.create_subprocess_shell(
+                    "npm install",
+                    cwd=project_path,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await npm_install_process.communicate()
+                if npm_install_process.returncode != 0:
+                    error_msg = stderr.decode('utf-8', errors='replace') if stderr else "未知错误"
+                    self._add_log(f"npm install 失败: {error_msg}", "ERROR")
+                    logger.error(f"npm install 失败: {error_msg}")
+                    return
+                self._add_log("依赖安装完成", "INFO")
+            except Exception as e:
+                self._add_log(f"安装依赖时出错: {str(e)}", "ERROR")
+                logger.error(f"安装依赖时出错: {str(e)}")
+                return
+
         env = os.environ.copy()
         env["PORT"] = str(self.server_port)
 
         self._add_log("正在启动 Node.js 服务...", "INFO")
 
-        if os.name == 'nt':
+        try:
             self.server_process = await asyncio.create_subprocess_shell(
                 "npm start",
                 cwd=project_path,
@@ -111,23 +138,33 @@ class BaiduAiImagingPlugin(Star):
                 stderr=asyncio.subprocess.PIPE,
                 env=env
             )
-        else:
-            self.server_process = await asyncio.create_subprocess_shell(
-                "npm start",
-                cwd=project_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env
-            )
+        except Exception as e:
+            self._add_log(f"启动 Node.js 进程失败: {str(e)}", "ERROR")
+            logger.error(f"启动 Node.js 进程失败: {str(e)}")
+            return
 
         # 启动日志读取任务
         asyncio.create_task(self._read_stdout())
         asyncio.create_task(self._read_stderr())
 
-        await asyncio.sleep(10)
-        self.is_server_running = True
-        self._add_log(f"百度AI生图服务已启动: {self.server_url}", "INFO")
-        logger.info(f"百度AI生图服务已启动: {self.server_url}")
+        # 等待服务真正启动（通过健康检查）
+        self._add_log("等待服务启动...", "INFO")
+        for i in range(30):  # 最多等待 30 秒
+            await asyncio.sleep(1)
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
+                    async with session.get(f"{self.server_url}/health") as resp:
+                        if resp.status == 200:
+                            self.is_server_running = True
+                            self._add_log(f"百度AI生图服务已启动: {self.server_url}", "INFO")
+                            logger.info(f"百度AI生图服务已启动: {self.server_url}")
+                            return
+            except Exception:
+                pass
+        
+        # 启动失败
+        self._add_log("服务启动超时，请检查日志了解详情", "ERROR")
+        logger.error("Node.js 服务启动超时")
 
     async def _read_stdout(self):
         """读取 Node.js 标准输出"""

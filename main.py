@@ -10,7 +10,7 @@ class BaiduAiImagingPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.server_process = None
-        self.server_port = 3000
+        self.server_port = 1145
         self.server_host = "localhost"
         self.server_url = f"http://{self.server_host}:{self.server_port}"
         self.is_server_running = False
@@ -43,7 +43,7 @@ class BaiduAiImagingPlugin(Star):
                 env=env
             )
 
-        await asyncio.sleep(5)
+        await asyncio.sleep(10)
         self.is_server_running = True
         logger.info(f"百度AI生图服务已启动: {self.server_url}")
 
@@ -52,7 +52,7 @@ class BaiduAiImagingPlugin(Star):
             await self.start_server()
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
                 async with session.get(f"{self.server_url}/health") as resp:
                     if resp.status == 200:
                         return True
@@ -75,7 +75,7 @@ class BaiduAiImagingPlugin(Star):
         await self.check_server()
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
                 payload = {
                     "prompt": prompt,
                     "n": min(max(n, 1), 4),
@@ -88,12 +88,23 @@ class BaiduAiImagingPlugin(Star):
                     json=payload
                 ) as resp:
                     if resp.status != 200:
-                        error_data = await resp.json()
-                        error_msg = error_data.get("error", {}).get("message", "生成图片失败")
+                        try:
+                            error_data = await resp.json()
+                            error_msg = error_data.get("error", {}).get("message", "生成图片失败")
+                        except Exception:
+                            text_content = await resp.text()
+                            error_msg = f"HTTP {resp.status}: {text_content[:100]}"
                         yield event.plain_result(f"图片生成失败: {error_msg}")
                         return
 
-                    data = await resp.json()
+                    try:
+                        data = await resp.json()
+                    except Exception as json_error:
+                        text_content = await resp.text()
+                        logger.error(f"JSON解析失败: {text_content}")
+                        yield event.plain_result(f"图片生成失败: 服务器返回格式错误")
+                        return
+
                     image_urls = [item["url"] for item in data.get("data", [])]
 
                     if not image_urls:
@@ -108,6 +119,12 @@ class BaiduAiImagingPlugin(Star):
                         result = "图片生成成功！\n\n图片URL:\n" + "\n".join(image_urls)
                         yield event.plain_result(result)
 
+        except aiohttp.ClientError as e:
+            logger.error(f"网络请求错误: {str(e)}")
+            yield event.plain_result(f"图片生成失败: 网络连接错误，请检查服务是否正常启动")
+        except asyncio.TimeoutError:
+            logger.error("请求超时")
+            yield event.plain_result("图片生成失败: 请求超时")
         except Exception as e:
             logger.error(f"图片生成错误: {str(e)}")
             yield event.plain_result(f"图片生成过程中发生错误: {str(e)}")

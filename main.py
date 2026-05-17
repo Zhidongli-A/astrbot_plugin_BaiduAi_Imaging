@@ -46,10 +46,11 @@ class BaiduImageGenerator:
 
         try:
             # 访问百度AI页面
-            await self.page.goto('https://chat.baidu.com/?enter_type=chat_url', {
-                'wait_until': 'domcontentloaded',
-                'timeout': 120000
-            })
+            await self.page.goto(
+                'https://chat.baidu.com/?enter_type=chat_url',
+                wait_until='domcontentloaded',
+                timeout=120000
+            )
             await asyncio.sleep(5)
 
             # 点击AI生图按钮

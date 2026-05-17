@@ -1,9 +1,8 @@
-import os
 import asyncio
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+import time
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
-import astrbot.api.message_components as Comp
 
 PLUGIN_NAME = "astrbot_plugin_BaiduAi_Imaging"
 
@@ -53,8 +52,8 @@ class BaiduImageGenerator:
             )
             await asyncio.sleep(5)
 
-            # 点击AI生图按钮
-            ai_image_button = self.page.locator('div').filter(has_text='^AI生图$').first
+            # 点击AI生图按钮 - 使用 text 定位器
+            ai_image_button = self.page.locator('div').filter(has_text='AI生图').first
             await ai_image_button.wait_for(state='visible', timeout=15000)
             await ai_image_button.click()
             await asyncio.sleep(3)
@@ -86,7 +85,7 @@ class BaiduImageGenerator:
                 'prompt': prompt,
                 'all_urls': image_urls,
                 'selected_url': image_urls[0] if image_urls else None,
-                'created_at': asyncio.get_event_loop().time()
+                'created_at': time.time()
             }
 
         except Exception as e:
@@ -95,11 +94,11 @@ class BaiduImageGenerator:
     async def _wait_for_generation_complete(self):
         """等待图片生成完成"""
         max_wait_time = 300000  # 5分钟
-        check_interval = 3000   # 3秒检查一次
-        start_time = asyncio.get_event_loop().time()
+        check_interval = 3      # 3秒检查一次
+        start_time = time.time()
         images_detected = False
 
-        while (asyncio.get_event_loop().time() - start_time) * 1000 < max_wait_time:
+        while (time.time() - start_time) * 1000 < max_wait_time:
             try:
                 # 检查是否还在加载中
                 loading_elements = await self.page.locator('text=/收集中|生成中|[0-9]+%/').all()
@@ -126,7 +125,7 @@ class BaiduImageGenerator:
             except Exception:
                 pass
 
-            await asyncio.sleep(check_interval / 1000)
+            await asyncio.sleep(check_interval)
 
         raise Exception('等待图片生成超时（超过5分钟）')
 

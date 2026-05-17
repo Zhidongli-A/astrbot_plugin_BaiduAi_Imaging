@@ -1,8 +1,0 @@
-{
-    "pages": {
-        "logs": {
-            "title": "服务日志",
-            "description": "实时查看百度AI生图 Node.js 服务的运行日志"
-        }
-    }
-}

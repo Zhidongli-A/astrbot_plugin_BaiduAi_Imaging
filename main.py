@@ -3,6 +3,7 @@ import asyncio
 from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
+import astrbot.api.message_components as Comp
 
 PLUGIN_NAME = "astrbot_plugin_BaiduAi_Imaging"
 
@@ -192,12 +193,12 @@ class BaiduAiImagingPlugin(Star):
                 break
 
     @filter.llm_tool(name="generate_image")
-    async def generate_image(self, event: AstrMessageEvent, prompt: str, send_to_user: bool = False, n: int = 1) -> MessageEventResult:
-        """使用百度AI生成图片。
+    async def generate_image(self, event: AstrMessageEvent, prompt: str, send_to_user: bool = False, n: int = 1) -> str:
+        """使用百度AI生成图片。When send_to_user is true, send images to user first, then return success message to agent. When false, return URLs to agent directly. All errors should be returned to agent instead of raising.
 
         Args:
             prompt(string): 图片描述，支持中文
-            send_to_user(boolean): 是否发送给用户，true表示发送，false表示仅返回URL
+            send_to_user(boolean): 是否发送给用户，true表示发送给用户，false表示仅返回URL给Agent
             n(number): 生成图片数量(1-4)，默认为1
         """
         n = min(max(n, 1), 4)
@@ -210,26 +211,33 @@ class BaiduAiImagingPlugin(Star):
                 image_urls = result['all_urls'][:n]
 
                 if not image_urls:
-                    yield event.plain_result("未能获取到图片URL")
-                    return
+                    return "Error: Failed to get image URLs"
 
                 if send_to_user:
+                    # 发送图片给用户（主动消息）
+                    from astrbot.api.event import MessageChain
+                    message_chain = MessageChain()
                     for url in image_urls:
-                        yield event.image_result(url)
-                    yield event.plain_result("图片已发送给用户")
+                        message_chain = message_chain.image(url)
+                    await self.context.send_message(event.unified_msg_origin, message_chain)
+                    # 返回给 Agent，告知已发送
+                    return f"Images have been successfully sent to the user. Generated {len(image_urls)} image(s) for prompt: '{prompt}'"
                 else:
-                    result_text = "图片生成成功！\n\n图片URL:\n" + "\n".join(image_urls)
-                    yield event.plain_result(result_text)
+                    # 返回 URL 给 Agent
+                    urls_text = "\n".join(image_urls)
+                    return f"Image generation successful. Here are the URLs:\n{urls_text}\n\nPrompt: '{prompt}'"
 
             finally:
                 self._release_generator(generator)
 
         except asyncio.TimeoutError:
-            logger.error("请求超时")
-            yield event.plain_result("图片生成失败: 请求超时")
+            error_msg = "Error: Image generation timeout"
+            logger.error(error_msg)
+            return error_msg
         except Exception as e:
-            logger.error(f"图片生成错误: {str(e)}")
-            yield event.plain_result(f"图片生成过程中发生错误: {str(e)}")
+            error_msg = f"Error: Image generation failed - {str(e)}"
+            logger.error(error_msg)
+            return error_msg
 
     async def terminate(self):
         """插件终止时关闭所有浏览器实例"""

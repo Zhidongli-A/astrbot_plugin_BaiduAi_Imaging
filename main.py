@@ -28,7 +28,19 @@ class BaiduAiImagingPlugin(Star):
             error = stderr.decode('utf-8', errors='replace').strip()
             raise Exception(f"生成失败: {error}")
 
-        result = json.loads(stdout.decode('utf-8'))
+        # 解析 JSON 输出（可能有其他日志，找最后一行以 { 开头的）
+        output = stdout.decode('utf-8', errors='replace').strip()
+        result_line = None
+        for line in reversed(output.split('\n')):
+            line = line.strip()
+            if line.startswith('{'):
+                result_line = line
+                break
+
+        if not result_line:
+            raise Exception(f"无法解析输出: {output[:200]}")
+
+        result = json.loads(result_line)
 
         if 'error' in result:
             raise Exception(result['error'])

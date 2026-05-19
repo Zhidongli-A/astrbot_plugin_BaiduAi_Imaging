@@ -50,31 +50,31 @@ class BaiduImageGenerator:
                 wait_until='domcontentloaded',
                 timeout=120000
             )
-            await asyncio.sleep(5)
+            await self.page.wait_for_timeout(5000)
 
-            # 点击AI生图按钮 - 使用 filter 精确匹配
+            # 点击AI生图按钮 - 使用正则匹配精确文本
             ai_image_button = self.page.locator('div').filter(has_text='AI生图').first
             await ai_image_button.wait_for(state='visible', timeout=15000)
             await ai_image_button.click()
-            await asyncio.sleep(3)
+            await self.page.wait_for_timeout(3000)
 
             # 输入提示词
             input_box = self.page.locator('div[contenteditable="true"]').first
             await input_box.wait_for(state='visible', timeout=20000)
             await input_box.click()
-            await asyncio.sleep(0.5)
+            await self.page.wait_for_timeout(500)
             await self.page.keyboard.press('Control+a')
-            await asyncio.sleep(0.2)
+            await self.page.wait_for_timeout(200)
             await self.page.keyboard.press('Delete')
-            await asyncio.sleep(0.2)
+            await self.page.wait_for_timeout(200)
             await input_box.fill(prompt)
-            await asyncio.sleep(1)
+            await self.page.wait_for_timeout(1000)
 
             # 点击发送按钮
             send_button = self.page.locator('#ci-submit-button-ai')
             await send_button.wait_for(state='visible', timeout=15000)
             await send_button.click()
-            await asyncio.sleep(5)
+            await self.page.wait_for_timeout(5000)
 
             # 等待生成完成
             await self._wait_for_generation_complete()
@@ -85,7 +85,7 @@ class BaiduImageGenerator:
                 'prompt': prompt,
                 'all_urls': image_urls,
                 'selected_url': image_urls[0] if image_urls else None,
-                'created_at': time.time()
+                'created_at': time.time() * 1000  # 转换为毫秒，与 JS Date.now() 一致
             }
 
         except Exception as e:
@@ -93,12 +93,14 @@ class BaiduImageGenerator:
 
     async def _wait_for_generation_complete(self):
         """等待图片生成完成"""
-        max_wait_time = 300000  # 5分钟
-        check_interval = 3      # 3秒检查一次
-        start_time = time.time()
+        max_wait_time = 300000  # 5分钟（毫秒）
+        check_interval = 3000   # 3秒（毫秒）
+        start_time = time.time() * 1000  # 转换为毫秒
+        last_percentage = ''
+        last_log_time = 0
         images_detected = False
 
-        while (time.time() - start_time) * 1000 < max_wait_time:
+        while (time.time() * 1000 - start_time) < max_wait_time:
             try:
                 # 检查是否还在加载中
                 loading_elements = await self.page.locator('text=/收集中|生成中|[0-9]+%/').all()
@@ -107,6 +109,9 @@ class BaiduImageGenerator:
                 for el in loading_elements:
                     try:
                         if await el.is_visible():
+                            text = await el.text_content()
+                            if text and text != last_percentage:
+                                last_percentage = text
                             is_loading = True
                             break
                     except:
@@ -119,13 +124,16 @@ class BaiduImageGenerator:
                     images_detected = True
 
                 if images_detected and not is_loading:
-                    await asyncio.sleep(5)
+                    await self.page.wait_for_timeout(5000)
                     return
+
+                if (time.time() * 1000 - last_log_time) > 30000:
+                    last_log_time = time.time() * 1000
 
             except Exception:
                 pass
 
-            await asyncio.sleep(check_interval)
+            await self.page.wait_for_timeout(check_interval)
 
         raise Exception('等待图片生成超时（超过5分钟）')
 
@@ -139,7 +147,7 @@ class BaiduImageGenerator:
             if src and src not in urls:
                 urls.append(src)
 
-        if not urls:
+        if len(urls) == 0:
             raise Exception('未能获取到生成的图片URL')
 
         return urls[:4]
@@ -150,9 +158,6 @@ class BaiduImageGenerator:
             await self.browser.close()
             self.browser = None
             self.page = None
-        if self.playwright:
-            await self.playwright.stop()
-            self.playwright = None
 
 
 class BaiduAiImagingPlugin(Star):

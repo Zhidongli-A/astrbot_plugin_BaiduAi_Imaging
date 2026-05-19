@@ -31,8 +31,6 @@ class BaiduImageGenerator {
       await this.init();
     }
 
-    console.log(`[请求] ${prompt}`);
-
     try {
       await this.page.goto('https://chat.baidu.com/?enter_type=chat_url', {
         waitUntil: 'domcontentloaded',
@@ -63,20 +61,15 @@ class BaiduImageGenerator {
 
       await this.waitForGenerationComplete();
       const imageUrls = await this.getImageUrls();
-      const selectedUrl = imageUrls[Math.floor(Math.random() * imageUrls.length)];
-
-      console.log(`[完成] ${prompt}`);
 
       return {
         success: true,
         prompt: prompt,
         all_urls: imageUrls,
-        selected_url: selectedUrl,
         created_at: new Date().toISOString()
       };
 
     } catch (error) {
-      console.log(`[失败] ${prompt}`);
       throw error;
     }
   }
@@ -86,7 +79,6 @@ class BaiduImageGenerator {
     const checkInterval = 3000;
     const startTime = Date.now();
     let lastPercentage = '';
-    let lastLogTime = 0;
     let imagesDetected = false;
 
     while (Date.now() - startTime < maxWaitTime) {
@@ -113,10 +105,6 @@ class BaiduImageGenerator {
         if (imagesDetected && !isLoading) {
           await this.page.waitForTimeout(5000);
           return;
-        }
-
-        if (Date.now() - lastLogTime > 30000) {
-          lastLogTime = Date.now();
         }
 
       } catch (e) {}
@@ -154,4 +142,24 @@ class BaiduImageGenerator {
   }
 }
 
-module.exports = BaiduImageGenerator;
+// 直接运行入口
+async function main() {
+  const prompt = process.argv[2];
+  if (!prompt) {
+    console.error(JSON.stringify({ error: '请提供提示词' }));
+    process.exit(1);
+  }
+
+  const generator = new BaiduImageGenerator();
+  try {
+    const result = await generator.generateImage(prompt);
+    console.log(JSON.stringify(result));
+    await generator.close();
+  } catch (error) {
+    console.error(JSON.stringify({ error: error.message }));
+    await generator.close();
+    process.exit(1);
+  }
+}
+
+main();

@@ -11,10 +11,10 @@ PLUGIN_NAME = "astrbot_plugin_BaiduAi_Imaging"
 class BaiduAiImagingPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.js_path = os.path.join(os.path.dirname(__file__), "generate.js")
+        self.js_path = os.path.join(os.path.dirname(__file__), "Baiduai.js")
 
     async def _generate_image(self, prompt: str):
-        """调用 Node.js 生成图片"""
+        """调用 Node.js 执行 Baiduai.js"""
         process = await asyncio.create_subprocess_exec(
             'node', self.js_path, prompt,
             stdout=asyncio.subprocess.PIPE,

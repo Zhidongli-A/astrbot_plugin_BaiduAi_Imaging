@@ -1,6 +1,7 @@
+import os
 import asyncio
-import time
-import re
+import json
+import subprocess
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
@@ -9,156 +10,82 @@ PLUGIN_NAME = "astrbot_plugin_BaiduAi_Imaging"
 
 
 class BaiduImageGenerator:
-    """百度AI图片生成器 - 使用 Playwright 模拟浏览器操作"""
+    """百度AI图片生成器 - 调用 Node.js 版本"""
 
     def __init__(self):
-        self.browser = None
-        self.page = None
-        self.playwright = None
-
-    async def init(self):
-        """初始化浏览器"""
-        from playwright.async_api import async_playwright
-
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(
-            headless=True,
-            args=[
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-gpu'
-            ]
-        )
-
-        self.page = await self.browser.new_page(
-            viewport={'width': 1920, 'height': 1080},
-            user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        )
-
-        self.page.set_default_timeout(60000)
-        self.page.set_default_navigation_timeout(120000)
+        self.js_path = os.path.join(os.path.dirname(__file__), "Baiduai.js")
 
     async def generate_image(self, prompt: str):
-        """生成图片"""
-        if not self.page:
-            await self.init()
+        """调用 Node.js 生成图片"""
+        # 创建临时 JS 脚本来执行生成
+        temp_js = f"""
+const BaiduImageGenerator = require('{self.js_path.replace('\\', '\\\\')}');
+
+async function main() {{
+    const generator = new BaiduImageGenerator();
+    try {{
+        const result = await generator.generateImage('{prompt.replace("'", "\\'")}');
+        console.log(JSON.stringify(result));
+        await generator.close();
+    }} catch (error) {{
+        console.error(JSON.stringify({{ error: error.message }}));
+        process.exit(1);
+    }}
+}}
+
+main();
+"""
+        # 写入临时文件
+        temp_path = os.path.join(os.path.dirname(__file__), "_temp_generate.js")
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            f.write(temp_js)
 
         try:
-            # 访问百度AI页面
-            await self.page.goto(
-                'https://chat.baidu.com/?enter_type=chat_url',
-                wait_until='domcontentloaded',
-                timeout=120000
+            # 执行 Node.js 脚本
+            process = await asyncio.create_subprocess_exec(
+                'node', temp_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=os.path.dirname(__file__)
             )
-            await self.page.wait_for_timeout(5000)
 
-            # 点击AI生图按钮 - 使用正则匹配精确文本（与 JS /^AI生图$/ 一致）
-            ai_image_button = self.page.locator('div').filter(has_text=re.compile(r'^AI生图$')).first
-            await ai_image_button.wait_for(state='visible', timeout=15000)
-            await ai_image_button.click()
-            await self.page.wait_for_timeout(3000)
+            stdout, stderr = await process.communicate()
 
-            # 输入提示词
-            input_box = self.page.locator('div[contenteditable="true"]').first
-            await input_box.wait_for(state='visible', timeout=20000)
-            await input_box.click()
-            await self.page.wait_for_timeout(500)
-            await self.page.keyboard.press('Control+a')
-            await self.page.wait_for_timeout(200)
-            await self.page.keyboard.press('Delete')
-            await self.page.wait_for_timeout(200)
-            await input_box.fill(prompt)
-            await self.page.wait_for_timeout(1000)
-
-            # 点击发送按钮
-            send_button = self.page.locator('#ci-submit-button-ai')
-            await send_button.wait_for(state='visible', timeout=15000)
-            await send_button.click()
-            await self.page.wait_for_timeout(5000)
-
-            # 等待生成完成
-            await self._wait_for_generation_complete()
-            image_urls = await self._get_image_urls()
-
-            return {
-                'success': True,
-                'prompt': prompt,
-                'all_urls': image_urls,
-                'selected_url': image_urls[0] if image_urls else None,
-                'created_at': time.time() * 1000  # 转换为毫秒，与 JS Date.now() 一致
-            }
-
-        except Exception as e:
-            raise e
-
-    async def _wait_for_generation_complete(self):
-        """等待图片生成完成"""
-        max_wait_time = 300000  # 5分钟（毫秒）
-        check_interval = 3000   # 3秒（毫秒）
-        start_time = time.time() * 1000  # 转换为毫秒
-        last_percentage = ''
-        last_log_time = 0
-        images_detected = False
-
-        while (time.time() * 1000 - start_time) < max_wait_time:
+            # 清理临时文件
             try:
-                # 检查是否还在加载中
-                loading_elements = await self.page.locator('text=/收集中|生成中|[0-9]+%/').all()
-                is_loading = False
-
-                for el in loading_elements:
-                    try:
-                        if await el.is_visible():
-                            text = await el.text_content()
-                            if text and text != last_percentage:
-                                last_percentage = text
-                            is_loading = True
-                            break
-                    except:
-                        pass
-
-                # 检查图片是否已经生成
-                images = await self.page.locator('._image-visible_c32gq_184').all()
-
-                if len(images) >= 4 and not images_detected:
-                    images_detected = True
-
-                if images_detected and not is_loading:
-                    await self.page.wait_for_timeout(5000)
-                    return
-
-                if (time.time() * 1000 - last_log_time) > 30000:
-                    last_log_time = time.time() * 1000
-
-            except Exception:
+                os.remove(temp_path)
+            except:
                 pass
 
-            await self.page.wait_for_timeout(check_interval)
+            if process.returncode != 0:
+                error_msg = stderr.decode('utf-8', errors='replace') if stderr else "未知错误"
+                raise Exception(f"Node.js 执行失败: {error_msg}")
 
-        raise Exception('等待图片生成超时（超过5分钟）')
+            # 解析结果
+            output = stdout.decode('utf-8', errors='replace').strip()
+            # 找到 JSON 输出（可能有其他日志）
+            lines = output.split('\n')
+            result_line = None
+            for line in reversed(lines):
+                line = line.strip()
+                if line.startswith('{'):
+                    result_line = line
+                    break
 
-    async def _get_image_urls(self):
-        """获取生成的图片URL"""
-        images = await self.page.locator('._image-visible_c32gq_184').all()
+            if not result_line:
+                raise Exception("无法解析生成结果")
 
-        urls = []
-        for img in images:
-            src = await img.get_attribute('src')
-            if src and src not in urls:
-                urls.append(src)
+            result = json.loads(result_line)
 
-        if len(urls) == 0:
-            raise Exception('未能获取到生成的图片URL')
+            if 'error' in result:
+                raise Exception(result['error'])
 
-        return urls[:4]
+            return result
 
-    async def close(self):
-        """关闭浏览器"""
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-            self.page = None
+        except asyncio.TimeoutError:
+            raise Exception("图片生成超时")
+        except Exception as e:
+            raise e
 
 
 class BaiduAiImagingPlugin(Star):
@@ -179,7 +106,6 @@ class BaiduAiImagingPlugin(Star):
         # 如果池未满，创建新实例
         if len(self.generator_pool) < self.max_pool_size:
             generator = BaiduImageGenerator()
-            await generator.init()
             self.generator_pool.append({'generator': generator, 'in_use': True})
             return generator
 
@@ -246,12 +172,7 @@ class BaiduAiImagingPlugin(Star):
             return error_msg
 
     async def terminate(self):
-        """插件终止时关闭所有浏览器实例"""
-        for item in self.generator_pool:
-            try:
-                await item['generator'].close()
-            except:
-                pass
+        """插件终止时清理"""
         self.generator_pool.clear()
 
 

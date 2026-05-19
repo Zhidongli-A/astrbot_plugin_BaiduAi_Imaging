@@ -1,5 +1,6 @@
 import asyncio
 import time
+import re
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
@@ -52,8 +53,8 @@ class BaiduImageGenerator:
             )
             await self.page.wait_for_timeout(5000)
 
-            # 点击AI生图按钮 - 使用正则匹配精确文本
-            ai_image_button = self.page.locator('div').filter(has_text='AI生图').first
+            # 点击AI生图按钮 - 使用正则匹配精确文本（与 JS /^AI生图$/ 一致）
+            ai_image_button = self.page.locator('div').filter(has_text=re.compile(r'^AI生图$')).first
             await ai_image_button.wait_for(state='visible', timeout=15000)
             await ai_image_button.click()
             await self.page.wait_for_timeout(3000)

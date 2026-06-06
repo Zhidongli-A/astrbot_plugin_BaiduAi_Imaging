@@ -3,6 +3,7 @@ display_name: BaiduAi-Imaging
 desc: 基于百度AI生图服务的图片生成插件，向LLM暴露唯一的图片生成工具。调用后自动启动服务，支持两种调用方式：发送给用户或仅获取URL。
 short_desc: 使用百度AI免费生成图片
 author: 枝动力
+repo: https://github.com/Zhidongli-A/astrbot_plugin_BaiduAi_Imaging.git
 version: 1.0.0
 require: ">=4.5.1"
 astrbot_version: ">=4.5.1"

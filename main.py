@@ -22,11 +22,19 @@ class BaiduAiImagingPlugin(Star):
             cwd=os.path.dirname(__file__)
         )
 
-        stdout, stderr = await process.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=370
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+            raise Exception('Node.js subprocess timed out (over 370 seconds)')
+
         stdout_str = stdout.decode('utf-8', errors='replace').strip()
         stderr_str = stderr.decode('utf-8', errors='replace').strip()
 
-        # 先尝试解析 stdout（成功时此处为 JSON）
+        # 优先解析 stdout ── 成功时此处为纯净 JSON
         if stdout_str:
             try:
                 result = json.loads(stdout_str)
@@ -36,8 +44,8 @@ class BaiduAiImagingPlugin(Star):
             except json.JSONDecodeError:
                 pass
 
-        # 尝试从 stderr 提取错误信息
-        if stderr_str:
+        # 进程退出码非 0 时，从 stderr 提取错误
+        if process.returncode != 0 and stderr_str:
             for line in reversed(stderr_str.split('\n')):
                 line = line.strip()
                 if line.startswith('{'):

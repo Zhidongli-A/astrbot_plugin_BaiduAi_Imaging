@@ -1,0 +1,15 @@
+{
+  "name": "astrbot_plugin_baiduai_imaging",
+  "version": "1.0.0",
+  "main": "Baiduai.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["baidu", "ai", "image-generation", "astrbot"],
+  "author": "枝动力",
+  "license": "ISC",
+  "description": "Baidu AI image generation plugin for AstrBot",
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
+}

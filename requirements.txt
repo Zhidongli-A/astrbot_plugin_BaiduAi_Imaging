@@ -1,1 +1,2 @@
-playwright>=1.40.0
+# Dependencies are managed via npm (see package.json).
+# Node.js and Playwright (npm install) are required.

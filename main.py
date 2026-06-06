@@ -23,29 +23,34 @@ class BaiduAiImagingPlugin(Star):
         )
 
         stdout, stderr = await process.communicate()
+        stdout_str = stdout.decode('utf-8', errors='replace').strip()
+        stderr_str = stderr.decode('utf-8', errors='replace').strip()
 
-        if process.returncode != 0:
-            error = stderr.decode('utf-8', errors='replace').strip()
-            raise Exception(f"生成失败: {error}")
+        # 先尝试解析 stdout（成功时此处为 JSON）
+        if stdout_str:
+            try:
+                result = json.loads(stdout_str)
+                if 'error' in result:
+                    raise Exception(result['error'])
+                return result
+            except json.JSONDecodeError:
+                pass
 
-        # 解析 JSON 输出（可能有其他日志，找最后一行以 { 开头的）
-        output = stdout.decode('utf-8', errors='replace').strip()
-        result_line = None
-        for line in reversed(output.split('\n')):
-            line = line.strip()
-            if line.startswith('{'):
-                result_line = line
-                break
+        # 尝试从 stderr 提取错误信息
+        if stderr_str:
+            for line in reversed(stderr_str.split('\n')):
+                line = line.strip()
+                if line.startswith('{'):
+                    try:
+                        err_result = json.loads(line)
+                        if 'error' in err_result:
+                            raise Exception(err_result['error'])
+                    except json.JSONDecodeError:
+                        pass
 
-        if not result_line:
-            raise Exception(f"无法解析输出: {output[:200]}")
-
-        result = json.loads(result_line)
-
-        if 'error' in result:
-            raise Exception(result['error'])
-
-        return result
+        # 最终错误报告
+        error_detail = stderr_str or stdout_str or 'unknown error'
+        raise Exception(f"Image generation failed: {error_detail}")
 
     @filter.llm_tool(name="generate_image")
     async def generate_image(self, event: AstrMessageEvent, prompt: str, send_to_user: bool = False, n: int = 1) -> str:
@@ -63,7 +68,7 @@ class BaiduAiImagingPlugin(Star):
             image_urls = result['all_urls'][:n]
 
             if not image_urls:
-                return "Error: Failed to get image URLs"
+                return "Error: no image URLs received from generator"
 
             if send_to_user:
                 from astrbot.api.event import MessageChain

@@ -8,6 +8,39 @@ class BaiduImageGenerator {
     this.page = null;
   }
 
+  _getPlaywrightDir() {
+    const homeDir = process.env.HOME || process.env.USERPROFILE;
+    if (process.platform === 'win32') {
+      return path.join(homeDir, 'AppData', 'Local', 'ms-playwright');
+    } else if (process.platform === 'darwin') {
+      return path.join(homeDir, 'Library', 'Caches', 'ms-playwright');
+    }
+    return path.join(homeDir, '.cache', 'ms-playwright');
+  }
+
+  _getPlatformDir() {
+    if (process.platform === 'win32') return 'win64';
+    if (process.platform === 'darwin') return 'mac';
+    return 'linux';
+  }
+
+  _getBrowserExeName() {
+    return process.platform === 'win32' ? 'chrome.exe' : 'chrome';
+  }
+
+  _getHeadlessShellExeName() {
+    return process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
+  }
+
+  _buildExecutablePath(baseDir, revisionDir, platformDir, exeName) {
+    const chromeDir = path.join(baseDir, revisionDir, `chrome-${platformDir}`);
+    if (process.platform === 'darwin') {
+      // macOS Chromium is bundled inside an .app
+      return path.join(chromeDir, 'Chromium.app', 'Contents', 'MacOS', exeName);
+    }
+    return path.join(chromeDir, exeName);
+  }
+
   async init() {
     const launchOpts = {
       headless: true,
@@ -22,19 +55,13 @@ class BaiduImageGenerator {
     // Detect installed Playwright browsers; fall back to full Chromium
     // if headless shell is not available (common in China where downloads may
     // be blocked).
-    const userDir = process.env.USERPROFILE;
-    const playwrightDir = path.join(userDir, 'AppData', 'Local', 'ms-playwright');
+    const playwrightDir = this._getPlaywrightDir();
+    const platformDir = this._getPlatformDir();
     const headlessShellPath = path.join(
       playwrightDir,
       `chromium_headless_shell-${chromium._revision}`,
-      'chrome-headless-shell-win64',
-      'chrome-headless-shell.exe'
-    );
-    const fullChromiumPath = path.join(
-      playwrightDir,
-      `chromium-${chromium._revision}`,
-      'chrome-win64',
-      'chrome.exe'
+      `chrome-headless-shell-${platformDir}`,
+      this._getHeadlessShellExeName()
     );
 
     if (!fs.existsSync(headlessShellPath)) {
@@ -42,8 +69,8 @@ class BaiduImageGenerator {
       const dirs = fs.readdirSync(playwrightDir, { withFileTypes: true });
       for (const dirent of dirs) {
         if (dirent.isDirectory() && /^chromium-\d+$/.test(dirent.name)) {
-          const exePath = path.join(
-            playwrightDir, dirent.name, 'chrome-win64', 'chrome.exe'
+          const exePath = this._buildExecutablePath(
+            playwrightDir, dirent.name, platformDir, this._getBrowserExeName()
           );
           if (fs.existsSync(exePath)) {
             launchOpts.executablePath = exePath;

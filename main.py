@@ -60,43 +60,31 @@ class BaiduAiImagingPlugin(Star):
         error_detail = stderr_str or stdout_str or 'unknown error'
         raise Exception(f"Image generation failed: {error_detail}")
 
-    @filter.llm_tool(name="generate_image")
-    async def generate_image(self, event: AstrMessageEvent, prompt: str, send_to_user: bool = False, n: int = 1) -> str:
-        """使用百度AI生成图片。
+    @filter.command("generate_image")
+    async def generate_image(self, event: AstrMessageEvent):
+        """使用百度AI生成图片。用法: generate_image <描述>"""
+        args = event.get_message_str().strip().split(maxsplit=1)
+        if len(args) < 2:
+            yield event.plain_result("用法: generate_image <图片描述>")
+            return
+        prompt = args[1]
 
-        Args:
-            prompt(string): 图片描述，支持中文
-            send_to_user(boolean): 是否发送给用户，true表示发送给用户，false表示仅返回URL给Agent
-            n(number): 生成图片数量(1-4)，默认为1
-        """
-        n = min(max(n, 1), 4)
+        yield event.plain_result(f"正在生成: {prompt}")
 
         try:
             result = await self._generate_image(prompt)
-            image_urls = result['all_urls'][:n]
+            image_urls = result['all_urls']
 
             if not image_urls:
-                return "Error: no image URLs received from generator"
+                yield event.plain_result("生成失败: 未收到图片 URL")
+                return
 
-            if send_to_user:
-                from astrbot.api.event import MessageChain
-
-                message_chain = MessageChain()
-                for url in image_urls:
-                    message_chain = message_chain.image(url)
-                await self.context.send_message(
-                    event.unified_msg_origin, message_chain
-                )
-
-                return f"Images have been successfully sent to the user. Generated {len(image_urls)} image(s) for prompt: '{prompt}'"
-            else:
-                urls_text = "\n".join(image_urls)
-                return f"Image generation successful. Here are the URLs:\n{urls_text}\n\nPrompt: '{prompt}'"
+            for url in image_urls:
+                yield event.image_result(url)
 
         except Exception as e:
-            error_msg = f"Error: Image generation failed - {str(e)}"
-            logger.error(error_msg)
-            return error_msg
+            logger.error(f"Image generation failed: {e}")
+            yield event.plain_result(f"生成失败: {str(e)}")
 
 
 def create_plugin(context: Context):

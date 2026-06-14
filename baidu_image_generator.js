@@ -1,6 +1,4 @@
 const { chromium } = require('playwright');
-const fs = require('fs');
-const path = require('path');
 
 class BaiduImageGenerator {
   constructor() {
@@ -8,41 +6,14 @@ class BaiduImageGenerator {
     this.page = null;
   }
 
-  _getPlaywrightDir() {
-    const homeDir = process.env.HOME || process.env.USERPROFILE;
-    if (process.platform === 'win32') {
-      return path.join(homeDir, 'AppData', 'Local', 'ms-playwright');
-    } else if (process.platform === 'darwin') {
-      return path.join(homeDir, 'Library', 'Caches', 'ms-playwright');
-    }
-    return path.join(homeDir, '.cache', 'ms-playwright');
-  }
-
-  _getPlatformDir() {
-    if (process.platform === 'win32') return 'win64';
-    if (process.platform === 'darwin') return 'mac';
-    return 'linux';
-  }
-
-  _getBrowserExeName() {
-    return process.platform === 'win32' ? 'chrome.exe' : 'chrome';
-  }
-
-  _getHeadlessShellExeName() {
-    return process.platform === 'win32' ? 'chrome-headless-shell.exe' : 'chrome-headless-shell';
-  }
-
-  _buildExecutablePath(baseDir, revisionDir, platformDir, exeName) {
-    const chromeDir = path.join(baseDir, revisionDir, `chrome-${platformDir}`);
-    if (process.platform === 'darwin') {
-      // macOS Chromium is bundled inside an .app
-      return path.join(chromeDir, 'Chromium.app', 'Contents', 'MacOS', exeName);
-    }
-    return path.join(chromeDir, exeName);
+  log(step, message) {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] [${step}] ${message}`);
   }
 
   async init() {
-    const launchOpts = {
+    this.log('初始化', '正在启动浏览器...');
+    this.browser = await chromium.launch({
       headless: true,
       args: [
         '--no-sandbox',
@@ -50,42 +21,15 @@ class BaiduImageGenerator {
         '--disable-dev-shm-usage',
         '--disable-gpu'
       ]
-    };
+    });
+    this.log('初始化', '浏览器启动完成');
 
-    // Detect installed Playwright browsers; fall back to full Chromium
-    // if headless shell is not available (common in China where downloads may
-    // be blocked).
-    const playwrightDir = this._getPlaywrightDir();
-    const platformDir = this._getPlatformDir();
-    const headlessShellPath = path.join(
-      playwrightDir,
-      `chromium_headless_shell-${chromium._revision}`,
-      `chrome-headless-shell-${platformDir}`,
-      this._getHeadlessShellExeName()
-    );
-
-    if (!fs.existsSync(headlessShellPath)) {
-      // Try older installed full Chromium as fallback
-      const dirs = fs.readdirSync(playwrightDir, { withFileTypes: true });
-      for (const dirent of dirs) {
-        if (dirent.isDirectory() && /^chromium-\d+$/.test(dirent.name)) {
-          const exePath = this._buildExecutablePath(
-            playwrightDir, dirent.name, platformDir, this._getBrowserExeName()
-          );
-          if (fs.existsSync(exePath)) {
-            launchOpts.executablePath = exePath;
-            break;
-          }
-        }
-      }
-    }
-
-    this.browser = await chromium.launch(launchOpts);
-
+    this.log('初始化', '正在创建新页面...');
     this.page = await this.browser.newPage({
       viewport: { width: 1920, height: 1080 },
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
+    this.log('初始化', '页面创建完成');
 
     this.page.setDefaultTimeout(60000);
     this.page.setDefaultNavigationTimeout(120000);
@@ -96,20 +40,34 @@ class BaiduImageGenerator {
       await this.init();
     }
 
+    this.log('请求', `开始生成图片: "${prompt}"`);
+
     try {
+      // 步骤1: 访问页面
+      this.log('步骤1', '正在访问百度AI页面...');
       await this.page.goto('https://chat.baidu.com/?enter_type=chat_url', {
-        waitUntil: 'domcontentloaded',
+        waitUntil: 'networkidle',
         timeout: 120000
       });
-      await this.page.waitForTimeout(5000);
+      await this.page.waitForTimeout(3000);
+      this.log('步骤1', '页面加载完成');
 
+      // 步骤2: 点击AI生图按钮
+      this.log('步骤2', '正在查找并点击"AI生图"按钮...');
       const aiImageButton = await this.page.locator('div').filter({ hasText: /^AI生图$/ }).first();
       await aiImageButton.waitFor({ state: 'visible', timeout: 15000 });
       await aiImageButton.click();
-      await this.page.waitForTimeout(3000);
+      this.log('步骤2', '已点击AI生图按钮');
+      
+      // 等待页面切换
+      await this.page.waitForTimeout(5000);
 
+      // 步骤3: 查找输入框并输入提示词
+      this.log('步骤3', '正在查找输入框...');
       const inputBox = await this.page.locator('div[contenteditable="true"]').first();
       await inputBox.waitFor({ state: 'visible', timeout: 20000 });
+      
+      this.log('步骤3', '找到输入框，正在输入提示词...');
       await inputBox.click();
       await this.page.waitForTimeout(500);
       await this.page.keyboard.press('Control+a');
@@ -118,15 +76,31 @@ class BaiduImageGenerator {
       await this.page.waitForTimeout(200);
       await inputBox.fill(prompt);
       await this.page.waitForTimeout(1000);
+      this.log('步骤3', `提示词输入完成: "${prompt}"`);
 
+      // 步骤4: 点击发送按钮
+      this.log('步骤4', '正在查找发送按钮...');
       const sendButton = await this.page.locator('#ci-submit-button-ai');
       await sendButton.waitFor({ state: 'visible', timeout: 15000 });
       await sendButton.click();
-      await this.page.waitForTimeout(5000);
+      this.log('步骤4', '已点击发送按钮');
+      
+      await this.page.waitForTimeout(3000);
 
+      // 步骤5: 等待图片生成
+      this.log('步骤5', '等待图片生成完成...');
       await this.waitForGenerationComplete();
+      this.log('步骤5', '图片生成完成');
+
+      // 步骤6: 获取图片URL
+      this.log('步骤6', '正在获取图片URL...');
       const imageUrls = await this.getImageUrls();
+      this.log('步骤6', `成功获取 ${imageUrls.length} 张图片URL`);
+
       const selectedUrl = imageUrls[Math.floor(Math.random() * imageUrls.length)];
+
+      this.log('完成', `图片生成成功: "${prompt}"`);
+      this.log('完成', `选中图片URL: ${selectedUrl}`);
 
       return {
         success: true,
@@ -137,6 +111,7 @@ class BaiduImageGenerator {
       };
 
     } catch (error) {
+      this.log('失败', `生成失败: ${error.message}`);
       throw error;
     }
   }
@@ -146,6 +121,7 @@ class BaiduImageGenerator {
     const checkInterval = 3000;
     const startTime = Date.now();
     let lastPercentage = '';
+    let lastLogTime = 0;
     let imagesDetected = false;
 
     while (Date.now() - startTime < maxWaitTime) {
@@ -158,6 +134,7 @@ class BaiduImageGenerator {
             const text = await el.textContent();
             if (text && text !== lastPercentage) {
               lastPercentage = text;
+              this.log('生成中', `当前进度: ${text}`);
             }
             isLoading = true;
           }
@@ -167,6 +144,7 @@ class BaiduImageGenerator {
 
         if (images.length >= 4 && !imagesDetected) {
           imagesDetected = true;
+          this.log('生成中', `检测到 ${images.length} 张图片已生成`);
         }
 
         if (imagesDetected && !isLoading) {
@@ -174,12 +152,19 @@ class BaiduImageGenerator {
           return;
         }
 
+        // 每10秒输出一次状态
+        if (Date.now() - lastLogTime > 10000) {
+          lastLogTime = Date.now();
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          this.log('生成中', `已等待 ${elapsed} 秒...`);
+        }
+
       } catch (e) {}
 
       await this.page.waitForTimeout(checkInterval);
     }
 
-    throw new Error('Image generation timed out (over 5 minutes)');
+    throw new Error('等待图片生成超时（超过5分钟）');
   }
 
   async getImageUrls() {
@@ -188,13 +173,13 @@ class BaiduImageGenerator {
     let urls = [];
     for (const img of images) {
       const src = await img.getAttribute('src');
-      if (src && !urls.includes(src)) {
+      if (src && !urls.includes(src) && src.startsWith('http')) {
         urls.push(src);
       }
     }
 
     if (urls.length === 0) {
-      throw new Error('Failed to retrieve generated image URLs');
+      throw new Error('未能获取到生成的图片URL');
     }
 
     return urls.slice(0, 4);
@@ -202,9 +187,11 @@ class BaiduImageGenerator {
 
   async close() {
     if (this.browser) {
+      this.log('关闭', '正在关闭浏览器...');
       await this.browser.close();
       this.browser = null;
       this.page = null;
+      this.log('关闭', '浏览器已关闭');
     }
   }
 }

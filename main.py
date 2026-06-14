@@ -1,8 +1,6 @@
 import os
 import asyncio
 import json
-import tempfile
-import urllib.request
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
@@ -83,33 +81,12 @@ class BaiduAiImagingPlugin(Star):
             if send_to_user:
                 from astrbot.api.event import MessageChain
 
-                temp_dir = tempfile.mkdtemp(prefix="baidu_ai_")
-                local_paths = []
-                try:
-                    for i, url in enumerate(image_urls):
-                        ext = ".jpg"
-                        local_path = os.path.join(temp_dir, f"image_{i}{ext}")
-                        await asyncio.to_thread(
-                            urllib.request.urlretrieve, url, local_path
-                        )
-                        local_paths.append(local_path)
-
-                    message_chain = MessageChain()
-                    for path in local_paths:
-                        message_chain = message_chain.image(path)
-                    await self.context.send_message(
-                        event.unified_msg_origin, message_chain
-                    )
-                finally:
-                    for path in local_paths:
-                        try:
-                            os.remove(path)
-                        except Exception:
-                            pass
-                    try:
-                        os.rmdir(temp_dir)
-                    except Exception:
-                        pass
+                message_chain = MessageChain()
+                for url in image_urls:
+                    message_chain = message_chain.image(url)
+                await self.context.send_message(
+                    event.unified_msg_origin, message_chain
+                )
 
                 return f"Images have been successfully sent to the user. Generated {len(image_urls)} image(s) for prompt: '{prompt}'"
             else:

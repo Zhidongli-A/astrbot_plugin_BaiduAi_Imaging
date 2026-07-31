@@ -43,7 +43,6 @@ class BaiduImageGenerator {
     this.log('请求', `开始生成图片: "${prompt}"`);
 
     try {
-      // 步骤1: 访问页面
       this.log('步骤1', '正在访问百度AI页面...');
       await this.page.goto('https://chat.baidu.com/?enter_type=chat_url', {
         waitUntil: 'networkidle',
@@ -52,21 +51,18 @@ class BaiduImageGenerator {
       await this.page.waitForTimeout(3000);
       this.log('步骤1', '页面加载完成');
 
-      // 步骤2: 点击AI生图按钮
       this.log('步骤2', '正在查找并点击"AI生图"按钮...');
       const aiImageButton = await this.page.locator('div').filter({ hasText: /^AI生图$/ }).first();
       await aiImageButton.waitFor({ state: 'visible', timeout: 15000 });
       await aiImageButton.click();
       this.log('步骤2', '已点击AI生图按钮');
-      
-      // 等待页面切换
+
       await this.page.waitForTimeout(5000);
 
-      // 步骤3: 查找输入框并输入提示词
       this.log('步骤3', '正在查找输入框...');
       const inputBox = await this.page.locator('div[contenteditable="true"]').first();
       await inputBox.waitFor({ state: 'visible', timeout: 20000 });
-      
+
       this.log('步骤3', '找到输入框，正在输入提示词...');
       await inputBox.click();
       await this.page.waitForTimeout(500);
@@ -78,21 +74,24 @@ class BaiduImageGenerator {
       await this.page.waitForTimeout(1000);
       this.log('步骤3', `提示词输入完成: "${prompt}"`);
 
-      // 步骤4: 点击发送按钮
       this.log('步骤4', '正在查找发送按钮...');
-      const sendButton = await this.page.locator('#ci-submit-button-ai');
-      await sendButton.waitFor({ state: 'visible', timeout: 15000 });
-      await sendButton.click();
-      this.log('步骤4', '已点击发送按钮');
-      
+      try {
+        const sendButton = await this.page.locator('#ci-submit-button-ai');
+        await sendButton.waitFor({ state: 'visible', timeout: 8000 });
+        await sendButton.click();
+        this.log('步骤4', '已点击发送按钮');
+      } catch (e) {
+        const url = this.page.url();
+        const title = await this.page.title().catch(() => '');
+        throw new Error(`未找到发送按钮 #ci-submit-button-ai（可能未登录或触发风控）。当前URL=${url}, 页面标题="${title}"`);
+      }
+
       await this.page.waitForTimeout(3000);
 
-      // 步骤5: 等待图片生成
       this.log('步骤5', '等待图片生成完成...');
       await this.waitForGenerationComplete();
       this.log('步骤5', '图片生成完成');
 
-      // 步骤6: 获取图片URL
       this.log('步骤6', '正在获取图片URL...');
       const imageUrls = await this.getImageUrls();
       this.log('步骤6', `成功获取 ${imageUrls.length} 张图片URL`);
@@ -123,6 +122,13 @@ class BaiduImageGenerator {
     let lastPercentage = '';
     let lastLogTime = 0;
     let imagesDetected = false;
+    let loadingSeenCount = 0;
+    let probeRound = 0;
+
+    const bodyText0 = await this.page.locator('body').innerText().catch(() => '');
+    if (/百度安全验证|请完成.*验证|滑块|拖动|安全校验|captcha/i.test(bodyText0)) {
+      throw new Error(`检测到百度风控/验证页面，无法继续生图。页面文本="${bodyText0.slice(0, 200).replace(/\s+/g, ' ')}"`);
+    }
 
     while (Date.now() - startTime < maxWaitTime) {
       try {
@@ -137,6 +143,7 @@ class BaiduImageGenerator {
               this.log('生成中', `当前进度: ${text}`);
             }
             isLoading = true;
+            loadingSeenCount += 1;
           }
         }
 
@@ -152,14 +159,25 @@ class BaiduImageGenerator {
           return;
         }
 
-        // 每10秒输出一次状态
+        probeRound += 1;
+        if (probeRound >= 3 && loadingSeenCount === 0 && !imagesDetected) {
+          const url = this.page.url();
+          const visibleText = await this.page.locator('body').innerText().catch(() => '');
+          throw new Error(
+            `连续 ${probeRound} 次轮询（约 ${probeRound * checkInterval} 秒）未检测到生图加载文案（收集中/生成中/N%），也未检测到图片。` +
+            `很可能是百度风控/验证码/未登录。URL=${url}; 页面关键文本="${visibleText.slice(0, 200).replace(/\s+/g, ' ')}"`
+          );
+        }
+
         if (Date.now() - lastLogTime > 10000) {
           lastLogTime = Date.now();
           const elapsed = Math.floor((Date.now() - startTime) / 1000);
           this.log('生成中', `已等待 ${elapsed} 秒...`);
         }
 
-      } catch (e) {}
+      } catch (e) {
+        if (e.message.includes('未检测到生图加载文案')) throw e;
+      }
 
       await this.page.waitForTimeout(checkInterval);
     }

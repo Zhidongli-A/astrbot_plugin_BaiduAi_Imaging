@@ -1,7 +1,7 @@
 name: astrbot_plugin_BaiduAi_Imaging
 display_name: BaiduAi-Imaging
-desc: 基于百度AI生图服务的图片生成插件，向LLM暴露唯一的图片生成工具。调用后自动启动服务，支持两种调用方式：发送给用户或仅获取URL。
-short_desc: 使用百度AI免费生成图片
+desc: 基于百度AI生图服务的图片生成插件，通过内置 Skill 引导 AI agent 调用 Node 脚本（Baiduai.js）使用 Playwright 在百度 AI 页面生图。Skill 中包含依赖与 Chromium 缺失时的诊断指引。
+short_desc: 通过 Skill 调用百度AI免费生成图片
 author: 枝动力
 repo: https://github.com/Zhidongli-A/astrbot_plugin_BaiduAi_Imaging.git
 version: 1.0.0

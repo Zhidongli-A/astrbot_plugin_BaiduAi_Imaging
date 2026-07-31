@@ -10,6 +10,6 @@
   "license": "ISC",
   "description": "Baidu AI image generation plugin for AstrBot",
   "dependencies": {
-    "playwright": "^1.60.0"
+    "playwright": "1.60.0"
   }
 }

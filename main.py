@@ -1,90 +1,37 @@
-import os
-import asyncio
-import json
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star
 from astrbot.api import logger
-
-PLUGIN_NAME = "astrbot_plugin_BaiduAi_Imaging"
 
 
 class BaiduAiImagingPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
-        self.js_path = os.path.join(os.path.dirname(__file__), "Baiduai.js")
 
-    async def _generate_image(self, prompt: str):
-        """调用 Node.js 执行 Baiduai.js"""
-        process = await asyncio.create_subprocess_exec(
-            'node', self.js_path, prompt,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=os.path.dirname(__file__)
-        )
+    @filter.llm_tool(name="send_image")
+    async def send_image(self, event: AstrMessageEvent, image_urls: list[str]):
+        '''把 AI 生成的图片发送给当前用户。
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=370
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            raise Exception('Node.js subprocess timed out (over 370 seconds)')
+        当 Skill 触发后从 Baiduai.js 拿到图片 URL 数组时，调用本工具把图片直接发给用户，避免再让模型输出 Markdown 链接或 base64。
 
-        stdout_str = stdout.decode('utf-8', errors='replace').strip()
-        stderr_str = stderr.decode('utf-8', errors='replace').strip()
-
-        # 优先解析 stdout ── 成功时此处为纯净 JSON
-        if stdout_str:
-            try:
-                result = json.loads(stdout_str)
-                if 'error' in result:
-                    raise Exception(result['error'])
-                return result
-            except json.JSONDecodeError:
-                pass
-
-        # 进程退出码非 0 时，从 stderr 提取错误
-        if process.returncode != 0 and stderr_str:
-            for line in reversed(stderr_str.split('\n')):
-                line = line.strip()
-                if line.startswith('{'):
-                    try:
-                        err_result = json.loads(line)
-                        if 'error' in err_result:
-                            raise Exception(err_result['error'])
-                    except json.JSONDecodeError:
-                        pass
-
-        # 最终错误报告
-        error_detail = stderr_str or stdout_str or 'unknown error'
-        raise Exception(f"Image generation failed: {error_detail}")
-
-    @filter.command("generate_image")
-    async def generate_image(self, event: AstrMessageEvent):
-        """使用百度AI生成图片。用法: generate_image <描述>"""
-        args = event.get_message_str().strip().split(maxsplit=1)
-        if len(args) < 2:
-            yield event.plain_result("用法: generate_image <图片描述>")
+        Args:
+            image_urls(array[string]): 图片 URL 列表，通常来自 Baiduai.js 输出的 all_urls 字段，可传 1~4 个
+        '''
+        if not image_urls:
+            yield event.plain_result("未收到图片 URL，请稍后重试。")
             return
-        prompt = args[1]
 
-        yield event.plain_result(f"正在生成: {prompt}")
-
-        try:
-            result = await self._generate_image(prompt)
-            image_urls = result['all_urls']
-
-            if not image_urls:
-                yield event.plain_result("生成失败: 未收到图片 URL")
-                return
-
-            for url in image_urls:
+        sent = 0
+        for url in image_urls:
+            if not url or not isinstance(url, str):
+                continue
+            try:
                 yield event.image_result(url)
+                sent += 1
+            except Exception as e:
+                logger.error(f"send_image failed for {url}: {e}")
 
-        except Exception as e:
-            logger.error(f"Image generation failed: {e}")
-            yield event.plain_result(f"生成失败: {str(e)}")
+        if sent == 0:
+            yield event.plain_result("图片发送失败，请稍后重试。")
 
 
 def create_plugin(context: Context):

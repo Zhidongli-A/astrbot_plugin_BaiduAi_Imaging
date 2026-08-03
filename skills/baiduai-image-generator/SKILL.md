@@ -9,7 +9,7 @@ description: 当用户想要生成图片、画一张图、做一张图、给我�
 
 ## 工作原理
 
-`Baiduai.js` 通过 Node.js 启动 Playwright 控制 Chromium，访问百度 AI 页面，模拟用户操作输入提示词并触发生图，最后从页面抓取最多 4 张生成图片的 URL 输出为 JSON。
+`Baiduai.js` 通过 Node.js 启动 Playwright 控制 Chromium，访问百度 AI 页面，模拟用户操作输入提示词并触发生图，从页面抓取生成的图片 URL 后**随机选取其中一张**输出为 JSON。每次只返回一张图片。
 
 ## 调用方式
 
@@ -35,11 +35,11 @@ cd <插件绝对路径> && node Baiduai.js "<prompt>"
 
 ## 拿到结果后
 
-1. 从 JSON 中取出 `all_urls` 字段（一个 URL 数组）。
+1. 从 JSON 中取出 `all_urls` 字段（一个 URL 数组，**只包含一张随机选中的图片**）。
 2. **调用 `send_image` 工具**，把 `all_urls` 整个传进去，工具内部会直接把图片发给用户：
 
    ```
-   send_image(image_urls=[<url1>, <url2>, ...])
+   send_image(image_urls=[<url1>])
    ```
 
    不要自己把链接拼成 Markdown 或 base64 输出给用户——必须通过这个工具发送，否则用户看不到图。

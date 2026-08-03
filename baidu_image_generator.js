@@ -104,7 +104,7 @@ class BaiduImageGenerator {
       return {
         success: true,
         prompt: prompt,
-        all_urls: imageUrls,
+        all_urls: [selectedUrl],
         selected_url: selectedUrl,
         created_at: new Date().toISOString()
       };
